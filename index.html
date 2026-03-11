@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GCP/Firebase Security & Infra Manager</title>
+    
+    <!-- PWA Settings -->
+    <meta name="theme-color" content="#1e40af">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { primary: '#1e40af', secondary: '#3b82f6', accent: '#f59e0b', dark: '#0f172a' }
+                }
+            }
+        }
+    </script>
+
+    <!-- FontAwesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Highlight.js -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" rel="stylesheet">
+
+    <!-- Vue 3, Dexie, Marked, Highlight -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+
+    <style>
+        /* Markdown Styles */
+        .prose pre { background-color: #0d1117; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin-top: 0.5rem; margin-bottom: 0.5rem; }
+        .prose code { font-family: monospace; color: #e5e7eb; }
+        .prose p { margin-bottom: 0.5rem; line-height: 1.5; }
+        .prose ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.5rem; }
+        .prose h3 { font-weight: bold; font-size: 1.1rem; margin-top: 1rem; margin-bottom: 0.5rem; color: #1e293b; }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Loader */
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3b82f6; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Fade Transition */
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        
+        /* Slide Transition */
+        .slide-enter-active, .slide-leave-active { transition: transform 0.3s ease; }
+        .slide-enter-from, .slide-leave-to { transform: translateX(100%); }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans h-screen overflow-hidden selection:bg-blue-200">
+
+<div id="app" class="flex h-full relative" v-cloak>
+    
+    <!-- Mobile Sidebar Overlay -->
+    <div v-if="isSidebarOpen" @click="isSidebarOpen = false" class="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden"></div>
+
+    <!-- Sidebar -->
+    <aside :class="['bg-dark text-white w-64 flex flex-col fixed md:relative h-full z-30 transition-transform transform', isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0']">
+        <div class="p-4 flex items-center justify-between border-b border-gray-700">
+            <div class="flex items-center gap-2 font-bold text-lg">
+                <i class="fa-solid fa-shield-halved text-accent"></i>
+                <span>GCP SecManager</span>
+            </div>
+            <button @click="isSidebarOpen = false" class="md:hidden text-gray-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- Project Selector -->
+        <div class="p-4 border-b border-gray-700">
+            <label class="text-xs text-gray-400 uppercase tracking-wider mb-1 block">Current Project</label>
+            <div class="relative">
+                <select v-model="currentProjectId" @change="handleProjectChange" class="w-full bg-gray-800 text-sm text-white rounded p-2 appearance-none border border-gray-600 focus:outline-none focus:border-secondary">
+                    <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option>
+                    <option value="new">+ New Project</option>
+                </select>
+                <i class="fa-solid fa-chevron-down absolute right-3 top-3 text-gray-400 text-xs pointer-events-none"></i>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="flex-1 overflow-y-auto py-4">
+            <ul class="space-y-1">
+                <li v-for="nav in navItems" :key="nav.id">
+                    <a href="#" @click.prevent="currentView = nav.id; isSidebarOpen = false" 
+                       :class="['flex items-center gap-3 px-4 py-3 text-sm transition-colors', currentView === nav.id ? 'bg-primary text-white border-l-4 border-accent' : 'text-gray-300 hover:bg-gray-800 hover:text-white border-l-4 border-transparent']">
+                        <i :class="['w-5 text-center', nav.icon]"></i>
+                        {{ nav.label }}
+                    </a>
+                </li>
+            </ul>
+        </nav>
+
+        <div class="p-4 border-t border-gray-700 text-xs text-gray-400 text-center">
+            PWA Ready & Offline Supported
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col h-full relative overflow-hidden">
+        <!-- Header -->
+        <header class="bg-white shadow-sm z-10 p-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <button @click="isSidebarOpen = true" class="md:hidden text-gray-600 hover:text-gray-900 focus:outline-none">
+                    <i class="fa-solid fa-bars text-xl"></i>
+                </button>
+                <h1 class="text-xl font-semibold text-gray-800">{{ currentNavLabel }}</h1>
+            </div>
+            <div class="flex items-center gap-4">
+                <div v-if="isSaving" class="text-xs text-gray-500 flex items-center gap-1"><i class="fa-solid fa-cloud-arrow-up"></i> Auto-saving...</div>
+                <button @click="triggerBackup" class="text-gray-500 hover:text-primary transition-colors tooltip" title="Create Snapshot">
+                    <i class="fa-solid fa-camera"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Dynamic Views -->
+        <div class="flex-1 overflow-y-auto p-4 md:p-6 bg-gray-50 relative pb-24">
+            
+            <!-- Dashboard View -->
+            <div v-if="currentView === 'dashboard'" class="space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center gap-4">
+                        <div class="bg-blue-100 text-blue-600 p-3 rounded-full"><i class="fa-solid fa-server fa-lg"></i></div>
+                        <div><p class="text-xs text-gray-500 font-bold">Project ID</p><p class="text-sm font-semibold truncate">{{ currentProject?.projectId || 'N/A' }}</p></div>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center gap-4">
+                        <div class="bg-green-100 text-green-600 p-3 rounded-full"><i class="fa-solid fa-shield-check fa-lg"></i></div>
+                        <div><p class="text-xs text-gray-500 font-bold">Security Score</p><p class="text-lg font-bold">85/100</p></div>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center gap-4">
+                        <div class="bg-purple-100 text-purple-600 p-3 rounded-full"><i class="fa-solid fa-users fa-lg"></i></div>
+                        <div><p class="text-xs text-gray-500 font-bold">IAM Roles</p><p class="text-lg font-bold">{{ projectData.iam.length }}</p></div>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center gap-4">
+                        <div class="bg-yellow-100 text-yellow-600 p-3 rounded-full"><i class="fa-solid fa-database fa-lg"></i></div>
+                        <div><p class="text-xs text-gray-500 font-bold">Collections</p><p class="text-lg font-bold">{{ projectData.firestoreCollections?.length || 0 }}</p></div>
+                    </div>
+                </div>
+                
+                <div class="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg">
+                    <h3 class="font-bold mb-2"><i class="fa-solid fa-lightbulb text-yellow-500 mr-2"></i>AI Assistant Tip & Sync Info</h3>
+                    <p class="text-sm mb-2">画面右下のAIアシスタントボタンから、Gemini 2.5 Flashを利用してFirestoreのセキュリティルールやIAMポリシーを自動生成できます。APIキーを「Settings」から設定してください。</p>
+                    <p class="text-sm">また、「Settings」からGCPサービスアカウントキーを登録することで、各画面からGCPの既存リソースを同期（モック検証）可能になります。</p>
+                </div>
+            </div>
+
+            <!-- Firestore Data Explorer View (新規追加) -->
+            <div v-else-if="currentView === 'firestore-data'" class="h-full flex flex-col md:flex-row gap-4 bg-gray-50 pb-8">
+                <!-- Collections Sidebar -->
+                <div class="w-full md:w-1/3 bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden shadow-sm h-64 md:h-auto">
+                    <div class="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center shrink-0">
+                        <span class="font-bold text-sm text-gray-700">Collections</span>
+                        <button @click="addCollection" class="text-primary hover:text-blue-800"><i class="fa-solid fa-plus"></i></button>
+                    </div>
+                    <ul class="overflow-y-auto flex-1 p-2 space-y-1">
+                        <li v-for="(col, index) in projectData.firestoreCollections" :key="index"
+                            @click="selectCollection(index)"
+                            class="p-2 rounded cursor-pointer text-sm flex justify-between group"
+                            :class="selectedCollectionIndex === index ? 'bg-blue-50 text-blue-700 font-bold' : 'hover:bg-gray-100'">
+                            <span><i class="fa-solid fa-folder text-yellow-500 mr-2"></i>{{ col.name }}</span>
+                            <button @click.stop="removeCollection(index)" class="hidden group-hover:block text-red-500"><i class="fa-solid fa-trash text-xs"></i></button>
+                        </li>
+                        <li v-if="!projectData.firestoreCollections || projectData.firestoreCollections.length === 0" class="text-xs text-gray-500 p-2 text-center">No collections found</li>
+                    </ul>
+                </div>
+                
+                <!-- Documents & Editor -->
+                <div class="w-full md:w-2/3 flex flex-col gap-4 h-[600px] md:h-auto">
+                    <!-- Documents List -->
+                    <div class="bg-white border border-gray-200 rounded-lg flex flex-col h-1/2 overflow-hidden shadow-sm">
+                        <div class="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center shrink-0">
+                            <span class="font-bold text-sm text-gray-700">Docs in '{{ activeCollection?.name || '---' }}'</span>
+                            <button v-if="activeCollection" @click="addDocument" class="text-primary hover:text-blue-800 text-sm"><i class="fa-solid fa-plus mr-1"></i> Add Doc</button>
+                        </div>
+                        <ul class="overflow-y-auto flex-1 p-2 space-y-1">
+                            <li v-for="(doc, index) in activeCollection?.documents" :key="index"
+                                @click="selectDocument(index)"
+                                class="p-2 rounded cursor-pointer text-sm flex justify-between group border-b border-gray-50"
+                                :class="selectedDocumentIndex === index ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100'">
+                                <span class="font-mono text-xs"><i class="fa-regular fa-file-lines text-gray-400 mr-2"></i>{{ doc.id }}</span>
+                                <button @click.stop="removeDocument(index)" class="hidden group-hover:block text-red-500"><i class="fa-solid fa-trash text-xs"></i></button>
+                            </li>
+                            <li v-if="activeCollection?.documents.length === 0" class="text-xs text-gray-500 p-2 text-center">No documents in this collection</li>
+                            <li v-if="!activeCollection" class="text-xs text-gray-400 p-2 text-center">Select a collection first</li>
+                        </ul>
+                    </div>
+
+                    <!-- Document Editor -->
+                    <div class="bg-white border border-gray-200 rounded-lg flex flex-col flex-1 overflow-hidden shadow-sm">
+                        <div class="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center shrink-0">
+                            <span class="font-bold text-sm text-gray-700">Document Data (JSON)</span>
+                            <button v-if="activeDocument" @click="saveDocumentContent" class="bg-green-600 text-white px-3 py-1 text-xs rounded shadow-sm hover:bg-green-700 transition-colors"><i class="fa-solid fa-check mr-1"></i> Save DB</button>
+                        </div>
+                        <textarea v-if="activeDocument" v-model="editingDocContent" @input="isSaving=true; setTimeout(()=>isSaving=false, 500)" class="flex-1 w-full p-4 font-mono text-sm bg-gray-900 text-gray-100 focus:outline-none resize-none" placeholder='{\n  "key": "value"\n}'></textarea>
+                        <div v-else class="flex-1 flex items-center justify-center text-sm text-gray-400 bg-gray-50">Select a document to view/edit data</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Firestore Rules View -->
+            <div v-else-if="currentView === 'firestore'" class="h-full flex flex-col bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div class="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                    <div class="flex items-center gap-3">
+                        <span class="text-sm font-medium text-gray-700">firestore.rules</span>
+                        <button @click="fetchFromGCP('rules')" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-1 rounded transition-colors border border-gray-300" title="Fetch current rules from GCP (Mock)"><i class="fa-solid fa-cloud-arrow-down mr-1"></i> Sync from GCP</button>
+                    </div>
+                    <button @click="deployRule" class="bg-primary hover:bg-blue-800 text-white px-3 py-1 rounded text-sm transition-colors shadow-sm">
+                        <i class="fa-solid fa-rocket mr-1"></i> Deploy
+                    </button>
+                </div>
+                <textarea v-model="projectData.firestoreRule" @input="debounceSave" class="flex-1 w-full p-4 font-mono text-sm bg-gray-900 text-gray-100 focus:outline-none resize-none" placeholder="rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if false;\n    }\n  }\n}"></textarea>
+            </div>
+
+            <!-- IAM View -->
+            <div v-else-if="currentView === 'iam'" class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                 <div class="p-4 border-b border-gray-200 flex justify-between items-center">
+                    <div class="flex items-center gap-3">
+                        <h3 class="font-bold text-gray-700">IAM Policies</h3>
+                        <button @click="fetchFromGCP('iam')" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-1 rounded transition-colors border border-gray-300"><i class="fa-solid fa-cloud-arrow-down mr-1"></i> Sync IAM</button>
+                    </div>
+                    <button @click="addIAM" class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 py-1 px-3 rounded border border-gray-300"><i class="fa-solid fa-plus mr-1"></i> Add Member</button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left text-gray-500">
+                        <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                            <tr><th class="px-6 py-3">Member</th><th class="px-6 py-3">Role</th><th class="px-6 py-3 text-right">Action</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(iam, index) in projectData.iam" :key="index" class="bg-white border-b">
+                                <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap"><input v-model="iam.member" @input="debounceSave" class="w-full border-b border-dashed border-gray-400 focus:outline-none focus:border-primary" placeholder="user@example.com"></td>
+                                <td class="px-6 py-4"><input v-model="iam.role" @input="debounceSave" class="w-full border-b border-dashed border-gray-400 focus:outline-none focus:border-primary" placeholder="roles/editor"></td>
+                                <td class="px-6 py-4 text-right"><button @click="removeIAM(index)" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-trash"></i></button></td>
+                            </tr>
+                            <tr v-if="projectData.iam.length === 0"><td colspan="3" class="px-6 py-8 text-center text-gray-400">No IAM entries. Use Sync or Add manually.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Serverless View -->
+            <div v-else-if="currentView === 'serverless'" class="space-y-4">
+                <div class="flex justify-between items-center mb-4">
+                    <div class="flex items-center gap-3">
+                        <h3 class="font-bold text-gray-700">Cloud Run / Functions</h3>
+                        <button @click="fetchFromGCP('services')" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-1 rounded transition-colors border border-gray-300"><i class="fa-solid fa-cloud-arrow-down mr-1"></i> Sync Services</button>
+                    </div>
+                    <button @click="addService" class="text-sm bg-primary text-white py-1 px-3 rounded shadow-sm hover:bg-blue-800"><i class="fa-solid fa-plus mr-1"></i> New Service</button>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div v-for="(svc, index) in projectData.services" :key="index" class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                        <div class="flex justify-between items-start mb-2">
+                            <input v-model="svc.name" @input="debounceSave" class="font-bold text-lg text-gray-800 border-b border-transparent hover:border-gray-300 focus:outline-none focus:border-primary w-2/3" placeholder="Service Name">
+                            <select v-model="svc.type" @change="debounceSave" class="text-xs font-semibold px-2 py-1 rounded bg-blue-100 text-blue-800 border-none outline-none appearance-none">
+                                <option value="Cloud Run">Cloud Run</option>
+                                <option value="Cloud Functions">Cloud Functions</option>
+                            </select>
+                        </div>
+                        <div class="space-y-2 text-sm mt-3">
+                            <div><label class="text-xs text-gray-500">Region</label><input v-model="svc.region" @input="debounceSave" class="w-full border-b border-gray-200 focus:outline-none py-1"></div>
+                            <div><label class="text-xs text-gray-500">Image / Source</label><input v-model="svc.source" @input="debounceSave" class="w-full border-b border-gray-200 focus:outline-none py-1"></div>
+                        </div>
+                        <div class="mt-4 flex justify-end gap-2">
+                            <button @click="removeService(index)" class="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
+                            <button class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded border border-gray-300">Edit Config / Deploy</button>
+                        </div>
+                    </div>
+                    <div v-if="projectData.services.length === 0" class="col-span-full bg-white p-8 rounded-lg shadow-sm border border-gray-200 text-center text-gray-400 border-dashed">
+                        No services defined. Use AI Assistant or Sync from GCP.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <div v-else-if="currentView === 'settings'" class="max-w-2xl bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <h3 class="font-bold text-gray-800 mb-4 border-b pb-2">Application Settings</h3>
+                
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Gemini API Key (Required for AI)</label>
+                    <input v-model="settings.apiKey" @input="saveSettings" type="password" class="w-full border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm" placeholder="AIzaSy...">
+                    <p class="text-xs text-gray-500 mt-1">Key is stored locally in IndexedDB.</p>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">GCP Service Account Key (JSON)</label>
+                    <div class="flex items-center gap-3">
+                        <label class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded text-sm transition-colors border border-gray-300 cursor-pointer shadow-sm">
+                            <i class="fa-solid fa-file-import mr-1"></i> Upload Key
+                            <input type="file" accept=".json" @change="uploadGCPKey" class="hidden">
+                        </label>
+                        <span class="text-sm flex items-center gap-1" :class="settings.gcpKey ? 'text-green-600 font-bold' : 'text-gray-500'">
+                            <i :class="settings.gcpKey ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle-xmark'"></i>
+                            {{ settings.gcpKey ? 'Key Configured (' + (settings.gcpKey.project_id || 'Valid') + ')' : 'Not Configured' }}
+                        </span>
+                        <button v-if="settings.gcpKey" @click="removeGCPKey" class="text-xs text-red-500 hover:text-red-700 underline ml-auto">Remove</button>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">Required for syncing live Firestore rules, IAM, and Data. Securely saved in IndexedDB.</p>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Manage Current Project</label>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-xs text-gray-500">Display Name</label>
+                            <input v-model="currentProject.name" @input="saveProjectInfo" class="w-full border border-gray-300 rounded p-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500">GCP Project ID</label>
+                            <input v-model="currentProject.projectId" @input="saveProjectInfo" class="w-full border border-gray-300 rounded p-2 text-sm">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="border-t pt-4">
+                    <h4 class="font-bold text-gray-700 mb-3 text-sm">Data & Backup</h4>
+                    <div class="flex flex-wrap gap-2">
+                        <button @click="exportData" class="bg-gray-800 hover:bg-black text-white px-4 py-2 rounded text-sm transition-colors"><i class="fa-solid fa-download mr-1"></i> Export JSON</button>
+                        <label class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded text-sm transition-colors border border-gray-300 cursor-pointer">
+                            <i class="fa-solid fa-upload mr-1"></i> Import JSON
+                            <input type="file" accept=".json" @change="importData" class="hidden">
+                        </label>
+                        <button @click="showBackups = true" class="bg-blue-50 text-blue-700 px-4 py-2 rounded text-sm transition-colors border border-blue-200"><i class="fa-solid fa-clock-rotate-left mr-1"></i> Restore (5 Gens)</button>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+
+        <!-- AI Assistant FAB -->
+        <button @click="toggleAI" class="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-r from-primary to-secondary rounded-full shadow-lg text-white flex items-center justify-center hover:scale-105 transition-transform z-40 focus:outline-none">
+            <i :class="isAIOpen ? 'fa-solid fa-xmark text-2xl' : 'fa-solid fa-sparkles text-2xl'"></i>
+        </button>
+
+    </main>
+
+    <!-- AI Assistant Panel -->
+    <Transition name="slide">
+        <div v-if="isAIOpen" class="fixed top-0 right-0 h-full w-full md:w-96 bg-white shadow-2xl z-40 flex flex-col border-l border-gray-200">
+            <div class="p-4 bg-gray-900 text-white flex justify-between items-center shrink-0">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center"><i class="fa-solid fa-robot text-sm"></i></div>
+                    <div>
+                        <h3 class="font-bold text-sm">AI Architect</h3>
+                        <p class="text-[10px] text-gray-400">Gemini 2.5 Flash Engine</p>
+                    </div>
+                </div>
+                <button @click="isAIOpen = false" class="text-gray-400 hover:text-white"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50" ref="chatContainer">
+                <div v-if="aiHistory.length === 0" class="text-center text-gray-400 text-sm mt-10">
+                    <i class="fa-solid fa-wand-magic-sparkles text-3xl mb-2 opacity-50"></i>
+                    <p>インフラやセキュリティルールの作成を<br>依頼してください。</p>
+                    <p class="text-xs mt-2">例: 「Firestoreのブログ用セキュリティルールを書いて」</p>
+                </div>
+                
+                <div v-for="(msg, index) in aiHistory" :key="index" :class="['flex', msg.role === 'user' ? 'justify-end' : 'justify-start']">
+                    <div :class="['max-w-[85%] rounded-2xl p-3 text-sm shadow-sm', msg.role === 'user' ? 'bg-primary text-white rounded-tr-sm' : 'bg-white border border-gray-200 text-gray-800 rounded-tl-sm']">
+                        <div v-if="msg.role === 'model'" class="prose prose-sm" v-html="renderMarkdown(msg.parts[0].text)"></div>
+                        <div v-else class="whitespace-pre-wrap">{{ msg.parts[0].text }}</div>
+                    </div>
+                </div>
+                
+                <div v-if="isAILoading" class="flex justify-start">
+                    <div class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm p-3 shadow-sm">
+                        <div class="loader"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="p-3 bg-white border-t border-gray-200 shrink-0">
+                <div v-if="!settings.apiKey" class="text-xs text-red-500 mb-2">※ SettingsからGemini APIキーを設定してください</div>
+                <div class="relative flex items-end gap-2 bg-gray-100 rounded-xl p-2 border border-gray-200 focus-within:border-primary focus-within:bg-white transition-colors">
+                    <textarea v-model="aiInput" @keydown.enter.prevent="sendToAI" rows="1" class="flex-1 bg-transparent border-none focus:outline-none text-sm resize-none max-h-32 py-1 px-2" placeholder="Ask AI..."></textarea>
+                    <button @click="sendToAI" :disabled="isAILoading || !aiInput.trim()" :class="['p-2 rounded-lg transition-colors', aiInput.trim() && !isAILoading ? 'bg-primary text-white hover:bg-blue-800' : 'bg-gray-300 text-gray-500 cursor-not-allowed']">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+                <div class="flex justify-between items-center mt-2 px-1">
+                    <button @click="clearChat" class="text-[10px] text-gray-500 hover:text-red-500 uppercase tracking-wider">Clear Chat</button>
+                    <div class="text-[10px] text-gray-400">Web Worker Async Exec</div>
+                </div>
+            </div>
+        </div>
+    </Transition>
+
+    <!-- Backup Modal -->
+    <div v-if="showBackups" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg w-full max-w-md shadow-xl overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h3 class="font-bold">Restore Backup (Last 5)</h3>
+                <button @click="showBackups = false"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-4 max-h-96 overflow-y-auto">
+                <ul v-if="backups.length > 0" class="space-y-2">
+                    <li v-for="b in backups" :key="b.id" class="flex justify-between items-center p-3 border rounded hover:bg-gray-50">
+                        <div>
+                            <div class="text-sm font-bold">{{ new Date(b.timestamp).toLocaleString() }}</div>
+                            <div class="text-xs text-gray-500">{{ Object.keys(b.data.projectData).length }} configs saved</div>
+                        </div>
+                        <button @click="restoreBackup(b)" class="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded hover:bg-blue-200">Restore</button>
+                    </li>
+                </ul>
+                <div v-else class="text-center text-gray-500 py-4">No backups found.</div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Web Worker for AI -->
+<script type="text/js-worker" id="ai-worker">
+    self.onmessage = async function(e) {
+        const { apiKey, history, prompt } = e.data;
+        try {
+            const messages = [...history, { role: "user", parts: [{ text: prompt }] }];
+            const systemInstruction = "あなたはGCP(Google Cloud Platform)およびFirebaseのセキュリティ・インフラ管理のエキスパートAIです。ユーザーの要件に合わせて、Firestoreのセキュリティルール、IAMポリシー、Terraformコードなどを生成・解説してください。出力は必ずMarkdown形式で行い、コードブロックには言語を指定してください。";
+            
+            const payload = {
+                system_instruction: { parts: { text: systemInstruction } },
+                contents: messages,
+                generationConfig: { temperature: 0.2 }
+            };
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            if (data.error) throw new Error(data.error.message);
+            if (!data.candidates || data.candidates.length === 0) throw new Error("No response generated");
+
+            self.postMessage({ success: true, text: data.candidates[0].content.parts[0].text });
+        } catch (error) {
+            self.postMessage({ success: false, error: error.message });
+        }
+    };
+</script>
+
+<!-- Main App Logic -->
+<script>
+    const { createApp, ref, reactive, onMounted, watch, nextTick, computed } = Vue;
+
+    const db = new Dexie("GCPManagerDB");
+    db.version(2).stores({
+        settings: 'id, apiKey, gcpKey, currentProjectId',
+        projects: 'id, name, projectId',
+        projectData: 'projectId, firestoreRule, iam, services, secrets, firestoreCollections',
+        aiChat: '++id, role, text',
+        backups: '++id, timestamp'
+    });
+
+    const defaultProjectData = {
+        firestoreRule: "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if false;\n    }\n  }\n}",
+        iam: [],
+        services: [],
+        secrets: [],
+        firestoreCollections: []
+    };
+
+    createApp({
+        setup() {
+            const isSidebarOpen = ref(false);
+            const currentView = ref('dashboard');
+            const isSaving = ref(false);
+            const isAIOpen = ref(false);
+            const isAILoading = ref(false);
+            const aiInput = ref('');
+            const showBackups = ref(false);
+            const chatContainer = ref(null);
+            
+            const settings = reactive({ apiKey: '', gcpKey: null, currentProjectId: null });
+            const projects = ref([]);
+            const currentProject = ref({});
+            const projectData = reactive(JSON.parse(JSON.stringify(defaultProjectData)));
+            const aiHistory = ref([]);
+            const backups = ref([]);
+
+            const navItems = [
+                { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-gauge' },
+                { id: 'firestore-data', label: 'Firestore Data', icon: 'fa-solid fa-table-list' },
+                { id: 'firestore', label: 'Firestore Rules', icon: 'fa-solid fa-database' },
+                { id: 'iam', label: 'IAM & Admin', icon: 'fa-solid fa-id-card' },
+                { id: 'serverless', label: 'Cloud Run/Func', icon: 'fa-solid fa-bolt' },
+                { id: 'settings', label: 'Settings', icon: 'fa-solid fa-gear' },
+            ];
+
+            const currentNavLabel = computed(() => navItems.find(n => n.id === currentView.value)?.label || 'App');
+            const currentProjectId = ref(null);
+
+            // Firestore Data Explorer State
+            const selectedCollectionIndex = ref(null);
+            const selectedDocumentIndex = ref(null);
+            const editingDocContent = ref('');
+
+            const activeCollection = computed(() => {
+                if (selectedCollectionIndex.value === null || !projectData.firestoreCollections) return null;
+                return projectData.firestoreCollections[selectedCollectionIndex.value];
+            });
+            const activeDocument = computed(() => {
+                if (selectedDocumentIndex.value === null || !activeCollection.value) return null;
+                return activeCollection.value.documents[selectedDocumentIndex.value];
+            });
+
+            // Worker & Wakelock
+            let aiWorker = null;
+            const initWorker = () => {
+                const workerScript = document.getElementById('ai-worker').textContent;
+                const blob = new Blob([workerScript], { type: 'application/javascript' });
+                aiWorker = new Worker(URL.createObjectURL(blob));
+                aiWorker.onmessage = (e) => {
+                    const { success, text, error } = e.data;
+                    isAILoading.value = false;
+                    releaseWakeLock();
+                    if (success) {
+                        aiHistory.value.push({ role: 'model', parts: [{ text: text }] });
+                        saveChatHistory();
+                    } else {
+                        alert(`AI Error: ${error}`);
+                        aiHistory.value.pop();
+                    }
+                    scrollToBottom();
+                };
+            };
+
+            let wakeLock = null;
+            const requestWakeLock = async () => {
+                try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
+            };
+            const releaseWakeLock = () => { if (wakeLock) wakeLock.release().then(() => wakeLock = null); };
+
+            marked.setOptions({
+                highlight: function(code, lang) {
+                    const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+                    return hljs.highlight(code, { language }).value;
+                }, breaks: true
+            });
+            const renderMarkdown = (text) => marked.parse(text);
+
+            let saveTimeout;
+            const debounceSave = () => {
+                isSaving.value = true;
+                clearTimeout(saveTimeout);
+                saveTimeout = setTimeout(async () => {
+                    await saveCurrentProjectData();
+                    isSaving.value = false;
+                }, 1000);
+            };
+
+            const saveSettings = async () => { await db.settings.put({ id: 1, ...settings }); };
+            const saveProjectInfo = async () => {
+                if(currentProject.value.id) {
+                    await db.projects.put(JSON.parse(JSON.stringify(currentProject.value)));
+                    await loadProjects();
+                }
+            };
+            const saveCurrentProjectData = async () => {
+                if (!currentProjectId.value || currentProjectId.value === 'new') return;
+                await db.projectData.put({
+                    projectId: currentProjectId.value,
+                    firestoreRule: projectData.firestoreRule || "",
+                    iam: JSON.parse(JSON.stringify(projectData.iam || [])),
+                    services: JSON.parse(JSON.stringify(projectData.services || [])),
+                    secrets: JSON.parse(JSON.stringify(projectData.secrets || [])),
+                    firestoreCollections: JSON.parse(JSON.stringify(projectData.firestoreCollections || []))
+                });
+            };
+
+            const triggerBackup = async () => {
+                if(!currentProjectId.value) return;
+                const dataToBackup = { projectInfo: currentProject.value, projectData: projectData };
+                await db.backups.add({ timestamp: Date.now(), data: JSON.parse(JSON.stringify(dataToBackup)) });
+                const count = await db.backups.count();
+                if (count > 5) {
+                    const oldest = await db.backups.orderBy('timestamp').first();
+                    if(oldest) await db.backups.delete(oldest.id);
+                }
+                loadBackups();
+                alert("Snapshot created successfully.");
+            };
+            const loadBackups = async () => { backups.value = await db.backups.orderBy('timestamp').reverse().toArray(); };
+            const restoreBackup = async (backupRecord) => {
+                if(confirm("Restore this snapshot? Current unsaved changes will be lost.")) {
+                    Object.assign(projectData, backupRecord.data.projectData);
+                    await saveCurrentProjectData();
+                    showBackups.value = false;
+                    alert("Restored successfully.");
+                }
+            };
+
+            const loadProjects = async () => { projects.value = await db.projects.toArray(); };
+            const loadProjectData = async (id) => {
+                const data = await db.projectData.get(id);
+                if (data) {
+                    Object.assign(projectData, JSON.parse(JSON.stringify(defaultProjectData))); // Reset
+                    Object.assign(projectData, data);
+                    if (!projectData.firestoreCollections) projectData.firestoreCollections = [];
+                } else {
+                    Object.assign(projectData, JSON.parse(JSON.stringify(defaultProjectData)));
+                }
+                selectedCollectionIndex.value = null;
+                selectedDocumentIndex.value = null;
+            };
+
+            const handleProjectChange = async () => {
+                if (currentProjectId.value === 'new') {
+                    const name = prompt("Enter new project name:");
+                    if (name) {
+                        const newId = 'proj_' + Date.now();
+                        await db.projects.add({ id: newId, name: name, projectId: name.toLowerCase().replace(/[^a-z0-9-]/g, '-') });
+                        await loadProjects();
+                        currentProjectId.value = newId;
+                    } else {
+                        currentProjectId.value = settings.currentProjectId || (projects.value.length > 0 ? projects.value[0].id : null);
+                        return;
+                    }
+                }
+                currentProject.value = projects.value.find(p => p.id === currentProjectId.value) || {};
+                settings.currentProjectId = currentProjectId.value;
+                await saveSettings();
+                await loadProjectData(currentProjectId.value);
+            };
+
+            const initializeApp = async () => {
+                initWorker();
+                const loadedSettings = await db.settings.get(1);
+                if (loadedSettings) Object.assign(settings, loadedSettings);
+                await loadProjects();
+                if (projects.value.length === 0) {
+                    const defProj = { id: 'default_1', name: 'My First Project', projectId: 'my-project-123' };
+                    await db.projects.add(defProj);
+                    projects.value = [defProj];
+                    settings.currentProjectId = defProj.id;
+                    await saveSettings();
+                }
+                currentProjectId.value = settings.currentProjectId || projects.value[0].id;
+                await handleProjectChange();
+                const chat = await db.aiChat.toArray();
+                aiHistory.value = chat.map(c => ({ role: c.role, parts: [{ text: c.text }] }));
+                await loadBackups();
+            };
+
+            onMounted(initializeApp);
+
+            // AI Interaction
+            const toggleAI = () => { isAIOpen.value = !isAIOpen.value; if(isAIOpen.value) scrollToBottom(); };
+            const scrollToBottom = () => { nextTick(() => { if (chatContainer.value) chatContainer.value.scrollTop = chatContainer.value.scrollHeight; }); };
+            const sendToAI = async () => {
+                if (!aiInput.value.trim() || isAILoading.value) return;
+                if (!settings.apiKey) { alert('Please set Gemini API Key in Settings first.'); return; }
+                const prompt = aiInput.value.trim();
+                aiInput.value = '';
+                aiHistory.value.push({ role: 'user', parts: [{ text: prompt }] });
+                saveChatHistory();
+                isAILoading.value = true;
+                scrollToBottom();
+                await requestWakeLock();
+                aiWorker.postMessage({ apiKey: settings.apiKey, history: JSON.parse(JSON.stringify(aiHistory.value.slice(0, -1))), prompt: prompt });
+            };
+            const saveChatHistory = async () => {
+                await db.aiChat.clear();
+                await db.aiChat.bulkAdd(aiHistory.value.map(h => ({ role: h.role, text: h.parts[0].text })));
+            };
+            const clearChat = async () => { if(confirm('Clear AI chat history?')) { aiHistory.value = []; await db.aiChat.clear(); } };
+
+            // Resource Management
+            const addIAM = () => { projectData.iam.push({ member: '', role: '' }); debounceSave(); };
+            const removeIAM = (index) => { projectData.iam.splice(index, 1); debounceSave(); };
+            const addService = () => { projectData.services.push({ name: '', type: 'Cloud Run', region: 'us-central1', source: '' }); debounceSave(); };
+            const removeService = (index) => { projectData.services.splice(index, 1); debounceSave(); };
+            const deployRule = () => { alert(`Mock Deploying rules for project ${currentProject.value.projectId}...\n\nRule deployed successfully!`); };
+
+            // GCP Key Upload
+            const uploadGCPKey = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        const keyData = JSON.parse(e.target.result);
+                        if (!keyData.project_id || !keyData.private_key) throw new Error("Invalid GCP Key format");
+                        settings.gcpKey = keyData;
+                        await saveSettings();
+                        alert("GCP Key saved securely in IndexedDB.");
+                    } catch (err) { alert("Error parsing key: " + err.message); }
+                };
+                reader.readAsText(file);
+            };
+            const removeGCPKey = async () => { settings.gcpKey = null; await saveSettings(); };
+
+            // Mock GCP Fetch
+            const fetchFromGCP = (type) => {
+                if (!settings.gcpKey) { alert("Please configure GCP Service Account Key in Settings first."); return; }
+                isSaving.value = true;
+                setTimeout(() => {
+                    if (type === 'rules') projectData.firestoreRule += "\n\n// Synced from GCP\n// match /public/{docId} { allow read: if true; }";
+                    else if (type === 'iam') projectData.iam.push({ member: 'serviceAccount:auto-synced@' + settings.gcpKey.project_id + '.iam.gserviceaccount.com', role: 'roles/editor' });
+                    else if (type === 'services') projectData.services.push({ name: 'synced-api-service', type: 'Cloud Run', region: 'asia-northeast1', source: 'gcr.io/' + settings.gcpKey.project_id + '/api:latest' });
+                    debounceSave();
+                    isSaving.value = false;
+                    alert("Sync complete! Data fetched via mock API.");
+                }, 800);
+            };
+
+            // Firestore Data Methods
+            const selectCollection = (index) => { selectedCollectionIndex.value = index; selectedDocumentIndex.value = null; editingDocContent.value = ''; };
+            const selectDocument = (index) => { selectedDocumentIndex.value = index; editingDocContent.value = activeCollection.value.documents[index].data; };
+            const addCollection = () => {
+                const name = prompt("Collection Name:");
+                if (name) {
+                    if(!projectData.firestoreCollections) projectData.firestoreCollections = [];
+                    projectData.firestoreCollections.push({ name, documents: [] });
+                    debounceSave();
+                }
+            };
+            const removeCollection = (index) => {
+                if(confirm("Delete this collection and all its documents?")) {
+                    projectData.firestoreCollections.splice(index, 1);
+                    if (selectedCollectionIndex.value === index) selectedCollectionIndex.value = null;
+                    debounceSave();
+                }
+            };
+            const addDocument = () => {
+                const id = prompt("Document ID (leave blank for auto-gen):") || `doc_${Date.now()}`;
+                activeCollection.value.documents.push({ id, data: '{\n  \n}' });
+                debounceSave();
+            };
+            const removeDocument = (index) => {
+                if(confirm("Delete this document?")) {
+                    activeCollection.value.documents.splice(index, 1);
+                    if (selectedDocumentIndex.value === index) { selectedDocumentIndex.value = null; editingDocContent.value = ''; }
+                    debounceSave();
+                }
+            };
+            const saveDocumentContent = () => {
+                try {
+                    JSON.parse(editingDocContent.value);
+                    activeCollection.value.documents[selectedDocumentIndex.value].data = editingDocContent.value;
+                    debounceSave();
+                    alert("Document data saved.");
+                } catch (e) { alert("Invalid JSON format! Please fix errors before saving."); }
+            };
+
+            // Import / Export
+            const exportData = async () => {
+                const data = { settings: await db.settings.toArray(), projects: await db.projects.toArray(), projectData: await db.projectData.toArray(), aiChat: await db.aiChat.toArray() };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `gcp-manager-export-${new Date().toISOString().split('T')[0]}.json`;
+                a.click(); URL.revokeObjectURL(url);
+            };
+            const importData = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        if (!data.projects || !data.projectData) throw new Error("Invalid format");
+                        await db.settings.clear(); await db.settings.bulkAdd(data.settings);
+                        await db.projects.clear(); await db.projects.bulkAdd(data.projects);
+                        await db.projectData.clear(); await db.projectData.bulkAdd(data.projectData);
+                        await db.aiChat.clear(); await db.aiChat.bulkAdd(data.aiChat || []);
+                        alert("Data imported successfully! App will reload."); location.reload();
+                    } catch (err) { alert("Failed to import data: " + err.message); }
+                };
+                reader.readAsText(file);
+            };
+
+            return {
+                isSidebarOpen, currentView, navItems, currentNavLabel,
+                projects, currentProjectId, currentProject, projectData,
+                settings, isSaving, debounceSave, saveSettings, saveProjectInfo, handleProjectChange,
+                isAIOpen, aiInput, aiHistory, isAILoading, toggleAI, sendToAI, clearChat, renderMarkdown, chatContainer,
+                addIAM, removeIAM, addService, removeService, deployRule, fetchFromGCP,
+                uploadGCPKey, removeGCPKey,
+                selectedCollectionIndex, selectedDocumentIndex, activeCollection, activeDocument, editingDocContent,
+                selectCollection, selectDocument, addCollection, removeCollection, addDocument, removeDocument, saveDocumentContent,
+                exportData, importData, triggerBackup, showBackups, backups, restoreBackup
+            };
+        }
+    }).mount('#app');
+
+    if ('serviceWorker' in navigator) {
+        const swCode = `
+            self.addEventListener('install', e => e.waitUntil(self.skipWaiting()));
+            self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+            self.addEventListener('fetch', e => {});
+        `;
+        const blob = new Blob([swCode], {type: 'application/javascript'});
+        navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(err => console.log('SW Reg failed', err));
+    }
+</script>
+</body>
+</html>
