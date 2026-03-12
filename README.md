@@ -1,62 +1,64 @@
-# GCP/Firebase Security & Infra Manager
+# GCP/Firebase Security & Infra Manager (GCP SecManager)
 
-## 概要
-「GCP/Firebase Security & Infra Manager (GCP SecManager)」は、ブラウザ上で完結するGoogle Cloud Platform (GCP) および Firebaseのインフラ・セキュリティ設定管理ツールです。
-Firestoreのセキュリティルール、IAMポリシー、Cloud Run / Cloud Functionsなどのサーバーレス設定、さらにFirestoreのモックデータを一つの直感的なインターフェースで管理できます。
+## 概要・説明
 
-最大の特長として、**Gemini 2.5 Flash API** を統合したAIアシスタント（AI Architect）を搭載しています。要件を自然言語で伝えるだけで、複雑なセキュリティルールやインフラ構成コードをAIが自動生成・解説します。また、すべてのデータはブラウザのローカルデータベース（IndexedDB）に安全に保存され、PWAやオフライン動作にも対応しています。
+**GCP SecManager** は、Google Cloud Platform (GCP) および Firebase のセキュリティルールやインフラストラクチャ設定を、ブラウザ上で直感的に管理・編集・デプロイできるシングルページアプリケーション (SPA) です。
 
-## 主な機能
-- **ダッシュボード**
-  プロジェクトのID、セキュリティスコア、IAMロール数、Firestoreコレクション数などのプロジェクト概要を素早く把握できます。
-- **Firestore Data Explorer**
-  Firestoreのコレクションやドキュメントを管理します。ブラウザ上のJSONエディタを使用して、モックデータの作成・編集・削除が可能です。
-- **Firestore Rules 管理**
-  `firestore.rules` の編集が行えます。GCPからのルール同期（モック検証）やデプロイ（モック）のアクションをサポートします。
-- **IAM & Admin**
-  プロジェクトのIAMポリシー（メンバーとロール）を一覧で管理し、追加・削除が可能です。
-- **サーバーレス環境管理**
-  Cloud RunやCloud Functionsのサービス名、タイプ、リージョン、コンテナイメージを視覚的に管理できます。
-- **AIアシスタント (AI Architect)**
-  画面右下のフローティングボタンからチャットパネルを起動できます。AI処理はWeb Workerを利用して非同期で実行されるため、UIの動作を妨げません。
-- **スナップショットとエクスポート機能**
-  ワンクリックで現在の設定のバックアップ（最大5世代）を作成・復元できます。また、すべてのデータをJSONファイルとしてエクスポート/インポートし、他の環境へ移行することも可能です。
-- **マルチプロジェクト対応**
-  複数のGCP/Firebaseプロジェクトを作成し、ドロップダウンから簡単に切り替えて管理できます。
+本アプリケーションは、ローカル環境（ブラウザの IndexedDB）で動作する完全なクライアントサイドツールであり、PWA（Progressive Web App）およびオフラインでの利用に対応しています。さらに、Gemini 2.5 Flash エンジンを搭載した **AI アシスタント** が組み込まれており、自然言語による指示で Firestore のセキュリティルールや IAM ポリシーの自動生成が可能です。
+
+GCP のサービスアカウントキーとバックエンド API URL を設定することで、実際の GCP プロジェクトとリアルタイムに同期・デプロイを行うことができます（未設定の場合はモックモードとして安全に試用可能です）。
+
+## 主な機能一覧
+
+* 📊 **ダッシュボード (Dashboard)**
+  * プロジェクトのサマリー（プロジェクトID、セキュリティスコア、IAMロール数、コレクション数）をひと目で確認。
+* 🗄️ **Firestore データエクスプローラ (Firestore Data)**
+  * Firestore のコレクションとドキュメントを階層表示。
+  * ドキュメントデータの JSON 形式での閲覧・編集・デプロイ機能。
+  * GCP からのリアルタイムデータ同期（Sync DB）。
+* 🛡️ **Firestore ルールマネージャー (Firestore Rules)**
+  * `firestore.rules` のコードエディタ。
+  * 現在のルールの同期（Sync）と、クラウドへの直接デプロイ（Deploy）。
+* 🔐 **IAM & 権限管理 (IAM & Admin)**
+  * ユーザーやサービスアカウントに対する IAM ロールの割り当て・管理。
+* ⚡ **サーバーレス管理 (Cloud Run/Func)**
+  * Cloud Run や Cloud Functions のサービス定義（リージョン、イメージ/ソースソース）の構成と管理。
+* 🤖 **AI アーキテクト (AI Assistant)**
+  * 画面右下のボタンからいつでも呼び出せる AI チャットアシスタント（Web Worker 非同期処理）。
+  * インフラ設計、セキュリティルールの作成、Terraform コードの提案などを Gemini API がサポート。
+* 💾 **バックアップ＆復元 (Data & Backup)**
+  * カメラアイコンからいつでもローカルスナップショット（直近5世代）を自動保存・復元。
+  * プロジェクト設定の JSON エクスポート / インポート機能。
 
 ## 使用技術・ライブラリ
-本プロジェクトは、Node.jsやnpmなどのビルドプロセスを必要とせず、単一のHTMLファイル内で動作する軽量かつモダンなアーキテクチャを採用しています。
 
-- **フロントエンド**: Vue 3 (Composition API / グローバルビルド)
-- **スタイリング**: Tailwind CSS (CDN), FontAwesome 6
-- **データベース**: Dexie.js (IndexedDBラッパー)
-- **マークダウンレンダリング**: Marked.js, Highlight.js (シンタックスハイライト)
-- **AI連携**: Google Gemini API (Gemini 2.5 Flash)
-- **ブラウザAPI**: Web Workers (AI非同期処理), PWA (Service Worker), Wake Lock API
+* **フロントエンド・フレームワーク**: Vue 3 (Composition API)
+* **スタイリング**: Tailwind CSS, FontAwesome 6
+* **ローカルデータベース**: Dexie.js (IndexedDB)
+* **マークダウンパース & ハイライト**: Marked.js, Highlight.js
+* **AI・非同期処理**: Web Worker, Google Gemini API (2.5 Flash)
+* **その他**: PWA 対応 (Service Worker, Web App Manifest)
 
 ## セットアップ・使い方
 
-### 🚀 セットアップ
-ビルド環境は不要です。
-1. 提供されたHTMLコードを `index.html` という名前で保存します。
-2. 保存したファイルをブラウザ（Google Chrome, Edge, Safariなど）で直接開くか、VS Codeの拡張機能「Live Server」などのローカルウェブサーバー経由で起動してください。
+### 1. アプリケーションの起動
+特別なビルド環境やサーバーは不要です。提供された HTML ファイルを Chrome, Edge, Safari などのモダンブラウザで開くだけですぐに利用を開始できます。
 
-### ⚙️ 基本的な使い方
+### 2. 初期設定 (Settings)
+サイドバーの「Settings」メニューから、以下の設定を行ってください。
 
-1. **APIキーの設定 (Settings)**
-   左サイドバーから「Settings」メニューを開きます。
-   AIアシスタントを利用するために、**Gemini API Key** を入力してください。（キーはサーバーには送信されず、お使いのブラウザのIndexedDBにのみ安全に保存されます）
-   ※ GCP連携のモック機能を利用する場合は、「GCP Service Account Key (JSON)」もここでアップロードできます。
+* **Gemini API Key (必須)**
+  * AI アシスタントを利用するために必要です。Google AI Studio などで取得した API キーを入力してください。（キーはローカルの IndexedDB に安全に保存されます）
+* **GCP Service Account Key (オプション)**
+  * 実際の GCP リソースと連携する場合、GCP コンソールからダウンロードしたサービスアカウントの JSON キーをアップロードしてください。
+* **Backend API URL (オプション)**
+  * セキュアなサーバーサイド API（Cloud Functions など）のエンドポイントを設定します。未設定の場合は、すべての同期・デプロイ機能が **モックモード（テストモード）** として動作します。
 
-2. **プロジェクトの作成**
-   左サイドバーの「Current Project」ドロップダウンから `+ New Project` を選択し、プロジェクト名を入力して新しい作業環境を作成します。
+### 3. プロジェクトの管理
+* サイドバーの「Current Project」ドロップダウンから、管理したいプロジェクトを切り替えるか、「+ New Project」から新規作成します。
+* サービスアカウントキーをアップロードすると、キーに含まれる `project_id` を読み取り、自動的にプロジェクト設定と紐付けることができます。
 
-3. **Firestoreデータの管理 (Firestore Data)**
-   「Firestore Data」メニューに移動し、コレクションリスト右上の「+」ボタンから新しいコレクションを作成します。その後「Add Doc」でドキュメントを追加し、中央のJSONエディタでデータを編集して「Save DB」をクリックします。
-
-4. **AIへの相談 (AI Architect)**
-   画面右下の「✨」アイコンをクリックしてAIチャットを開きます。
-   「Firestoreのブログアプリ用セキュリティルールを作成して」や「Cloud RunのセキュアなIAM設定を教えて」と入力すると、AIがMarkdown形式で解説とコードを生成します。
-
-5. **データのバックアップ**
-   画面右上のカメラアイコン（📸）をクリックすると、現在の状態のスナップショットが作成されます。設定を誤った場合は、「Settings」画面の「Restore (5 Gens)」から過去の状態に復元できます。
+### 4. 日常のオペレーション
+* 各画面右上にある **「Sync...」** ボタンで、クラウド上の最新状態をローカルに取り込みます。
+* 設定を変更した後は、**「Deploy...」** ボタンをクリックして変更を GCP プロジェクトへ反映させます。
+* 右上の **カメラアイコン** をクリックすると、作業中の状態をスナップショットとしてバックアップできます（「Settings」画面からリストア可能）。
