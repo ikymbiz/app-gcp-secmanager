@@ -154,16 +154,19 @@
                 <div class="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg">
                     <h3 class="font-bold mb-2"><i class="fa-solid fa-lightbulb text-yellow-500 mr-2"></i>AI Assistant Tip & Sync Info</h3>
                     <p class="text-sm mb-2">画面右下のAIアシスタントボタンから、Gemini 2.5 Flashを利用してFirestoreのセキュリティルールやIAMポリシーを自動生成できます。APIキーを「Settings」から設定してください。</p>
-                    <p class="text-sm">また、「Settings」からGCPサービスアカウントキーを登録することで、各画面からGCPの既存リソースを同期（モック検証）可能になります。</p>
+                    <p class="text-sm">また、「Settings」からGCPサービスアカウントキーとBackend API URLを登録することで、各画面からGCPの既存リソースをリアルタイムに同期・デプロイ可能になります。</p>
                 </div>
             </div>
 
-            <!-- Firestore Data Explorer View (新規追加) -->
+            <!-- Firestore Data Explorer View -->
             <div v-else-if="currentView === 'firestore-data'" class="h-full flex flex-col md:flex-row gap-4 bg-gray-50 pb-8">
                 <!-- Collections Sidebar -->
                 <div class="w-full md:w-1/3 bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden shadow-sm h-64 md:h-auto">
                     <div class="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center shrink-0">
-                        <span class="font-bold text-sm text-gray-700">Collections</span>
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-sm text-gray-700">Collections</span>
+                            <button @click="syncFirestoreData" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-1 rounded transition-colors border border-gray-300" title="Sync Collections from GCP"><i class="fa-solid fa-cloud-arrow-down mr-1"></i> Sync DB</button>
+                        </div>
                         <button @click="addCollection" class="text-primary hover:text-blue-800"><i class="fa-solid fa-plus"></i></button>
                     </div>
                     <ul class="overflow-y-auto flex-1 p-2 space-y-1">
@@ -203,7 +206,7 @@
                     <div class="bg-white border border-gray-200 rounded-lg flex flex-col flex-1 overflow-hidden shadow-sm">
                         <div class="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center shrink-0">
                             <span class="font-bold text-sm text-gray-700">Document Data (JSON)</span>
-                            <button v-if="activeDocument" @click="saveDocumentContent" class="bg-green-600 text-white px-3 py-1 text-xs rounded shadow-sm hover:bg-green-700 transition-colors"><i class="fa-solid fa-check mr-1"></i> Save DB</button>
+                            <button v-if="activeDocument" @click="saveDocumentContent" class="bg-green-600 text-white px-3 py-1 text-xs rounded shadow-sm hover:bg-green-700 transition-colors"><i class="fa-solid fa-check mr-1"></i> Deploy/Save</button>
                         </div>
                         <textarea v-if="activeDocument" v-model="editingDocContent" @input="isSaving=true; setTimeout(()=>isSaving=false, 500)" class="flex-1 w-full p-4 font-mono text-sm bg-gray-900 text-gray-100 focus:outline-none resize-none" placeholder='{\n  "key": "value"\n}'></textarea>
                         <div v-else class="flex-1 flex items-center justify-center text-sm text-gray-400 bg-gray-50">Select a document to view/edit data</div>
@@ -216,10 +219,10 @@
                 <div class="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
                     <div class="flex items-center gap-3">
                         <span class="text-sm font-medium text-gray-700">firestore.rules</span>
-                        <button @click="fetchFromGCP('rules')" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-1 rounded transition-colors border border-gray-300" title="Fetch current rules from GCP (Mock)"><i class="fa-solid fa-cloud-arrow-down mr-1"></i> Sync from GCP</button>
+                        <button @click="fetchFromGCP('rules')" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-1 rounded transition-colors border border-gray-300" title="Fetch current rules from GCP"><i class="fa-solid fa-cloud-arrow-down mr-1"></i> Sync from GCP</button>
                     </div>
                     <button @click="deployRule" class="bg-primary hover:bg-blue-800 text-white px-3 py-1 rounded text-sm transition-colors shadow-sm">
-                        <i class="fa-solid fa-rocket mr-1"></i> Deploy
+                        <i class="fa-solid fa-rocket mr-1"></i> Deploy Rules
                     </button>
                 </div>
                 <textarea v-model="projectData.firestoreRule" @input="debounceSave" class="flex-1 w-full p-4 font-mono text-sm bg-gray-900 text-gray-100 focus:outline-none resize-none" placeholder="rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if false;\n    }\n  }\n}"></textarea>
@@ -232,7 +235,10 @@
                         <h3 class="font-bold text-gray-700">IAM Policies</h3>
                         <button @click="fetchFromGCP('iam')" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-1 rounded transition-colors border border-gray-300"><i class="fa-solid fa-cloud-arrow-down mr-1"></i> Sync IAM</button>
                     </div>
-                    <button @click="addIAM" class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 py-1 px-3 rounded border border-gray-300"><i class="fa-solid fa-plus mr-1"></i> Add Member</button>
+                    <div class="flex items-center gap-2">
+                        <button @click="addIAM" class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 py-1 px-3 rounded border border-gray-300"><i class="fa-solid fa-plus mr-1"></i> Add Member</button>
+                        <button @click="deployIAM" class="text-sm bg-primary hover:bg-blue-800 text-white py-1 px-3 rounded shadow-sm transition-colors"><i class="fa-solid fa-rocket mr-1"></i> Deploy IAM</button>
+                    </div>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm text-left text-gray-500">
@@ -275,7 +281,7 @@
                         </div>
                         <div class="mt-4 flex justify-end gap-2">
                             <button @click="removeService(index)" class="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded">Delete</button>
-                            <button class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded border border-gray-300">Edit Config / Deploy</button>
+                            <button @click="deployService(index)" class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded border border-gray-300">Edit Config & Deploy</button>
                         </div>
                     </div>
                     <div v-if="projectData.services.length === 0" class="col-span-full bg-white p-8 rounded-lg shadow-sm border border-gray-200 text-center text-gray-400 border-dashed">
@@ -294,7 +300,15 @@
                     <p class="text-xs text-gray-500 mt-1">Key is stored locally in IndexedDB.</p>
                 </div>
 
-                <div class="mb-6">
+                <div class="mb-6 border-t pt-4">
+                    <h4 class="font-bold text-gray-800 mb-3">GCP Real Sync Configuration</h4>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Backend API URL (For Real Sync)</label>
+                        <input v-model="settings.backendApiUrl" @input="saveSettings" type="url" class="w-full border border-gray-300 rounded p-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm" placeholder="https://REGION-PROJECT.cloudfunctions.net/api">
+                        <p class="text-xs text-gray-500 mt-1">Leave blank to use Mock Mode. Set this to your secure Cloud Functions / Cloud Run endpoint.</p>
+                    </div>
+
                     <label class="block text-sm font-medium text-gray-700 mb-1">GCP Service Account Key (JSON)</label>
                     <div class="flex items-center gap-3">
                         <label class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded text-sm transition-colors border border-gray-300 cursor-pointer shadow-sm">
@@ -307,10 +321,25 @@
                         </span>
                         <button v-if="settings.gcpKey" @click="removeGCPKey" class="text-xs text-red-500 hover:text-red-700 underline ml-auto">Remove</button>
                     </div>
-                    <p class="text-xs text-gray-500 mt-2">Required for syncing live Firestore rules, IAM, and Data. Securely saved in IndexedDB.</p>
+                    
+                    <!-- Expanded Guide Section -->
+                    <div class="mt-4 text-xs text-gray-600 bg-blue-50 p-4 rounded border border-blue-100 shadow-sm">
+                        <p class="font-bold mb-2 text-blue-800"><i class="fa-solid fa-circle-info mr-1"></i>GCPサービスアカウントキーの取得手順:</p>
+                        <ol class="list-decimal ml-5 space-y-1.5 mb-3">
+                            <li><a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" class="text-blue-600 hover:underline font-medium">Google Cloud Consoleの「サービスアカウント」ページ</a>を開きます。</li>
+                            <li>連携したいプロジェクトを選択し、適切な権限を持つサービスアカウントを選択（または新規作成）します。</li>
+                            <li>「キー」タブへ移動し、「鍵を追加」>「新しい鍵を作成」>「JSON」を選択してファイルをダウンロードします。</li>
+                            <li>上記「Upload Key」ボタンから、ダウンロードしたJSONファイルを選択してください。</li>
+                        </ol>
+                        <p class="text-blue-800 font-bold mt-2 mb-1"><i class="fa-solid fa-shield-halved mr-1"></i>セキュリティとリアル同期について:</p>
+                        <ul class="list-disc ml-5 space-y-1">
+                            <li>本アプリでは、アップロードされたキーはブラウザのローカル(IndexedDB)に安全に保存されます。</li>
+                            <li>上記の「Backend API URL」を設定することで、セキュアなサーバーサイドAPIを経由したGCPリソースへのリアルタイムな同期・操作（Deploy, Sync等）が可能になります。未設定時はモック（テスト）モードとして動作します。</li>
+                        </ul>
+                    </div>
                 </div>
 
-                <div class="mb-6">
+                <div class="mb-6 border-t pt-4">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Manage Current Project</label>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
@@ -457,8 +486,9 @@
     const { createApp, ref, reactive, onMounted, watch, nextTick, computed } = Vue;
 
     const db = new Dexie("GCPManagerDB");
+    // Added backendApiUrl conceptually, Dexie handles new properties gracefully.
     db.version(2).stores({
-        settings: 'id, apiKey, gcpKey, currentProjectId',
+        settings: 'id, apiKey, gcpKey, currentProjectId, backendApiUrl',
         projects: 'id, name, projectId',
         projectData: 'projectId, firestoreRule, iam, services, secrets, firestoreCollections',
         aiChat: '++id, role, text',
@@ -484,7 +514,7 @@
             const showBackups = ref(false);
             const chatContainer = ref(null);
             
-            const settings = reactive({ apiKey: '', gcpKey: null, currentProjectId: null });
+            const settings = reactive({ apiKey: '', gcpKey: null, currentProjectId: null, backendApiUrl: '' });
             const projects = ref([]);
             const currentProject = ref({});
             const projectData = reactive(JSON.parse(JSON.stringify(defaultProjectData)));
@@ -632,6 +662,9 @@
                 }
                 currentProject.value = projects.value.find(p => p.id === currentProjectId.value) || {};
                 settings.currentProjectId = currentProjectId.value;
+                if(settings.gcpKey && settings.gcpKey.project_id === currentProject.value.projectId) {
+                     // Key belongs to this project
+                }
                 await saveSettings();
                 await loadProjectData(currentProjectId.value);
             };
@@ -678,14 +711,35 @@
             };
             const clearChat = async () => { if(confirm('Clear AI chat history?')) { aiHistory.value = []; await db.aiChat.clear(); } };
 
-            // Resource Management
-            const addIAM = () => { projectData.iam.push({ member: '', role: '' }); debounceSave(); };
-            const removeIAM = (index) => { projectData.iam.splice(index, 1); debounceSave(); };
-            const addService = () => { projectData.services.push({ name: '', type: 'Cloud Run', region: 'us-central1', source: '' }); debounceSave(); };
-            const removeService = (index) => { projectData.services.splice(index, 1); debounceSave(); };
-            const deployRule = () => { alert(`Mock Deploying rules for project ${currentProject.value.projectId}...\n\nRule deployed successfully!`); };
+            // Real GCP Sync API Wrapper
+            const callBackendAPI = async (path, method = 'POST', data = {}) => {
+                if (!settings.backendApiUrl) {
+                    console.warn("Backend API URL not set, using Mock Mode.");
+                    return null; // Signals Mock Mode
+                }
+                if (!settings.gcpKey) throw new Error("GCP Service Account Key is required for real sync.");
+                
+                const payload = {
+                    gcpKey: settings.gcpKey, // Securely transmitted to your backend
+                    projectId: currentProject.value.projectId,
+                    ...data
+                };
 
-            // GCP Key Upload
+                const response = await fetch(`${settings.backendApiUrl}${path}`, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: method !== 'GET' ? JSON.stringify(payload) : undefined
+                });
+
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.message || `API Request Failed: ${response.status}`);
+                }
+                return await response.json();
+            };
+
+
+            // GCP Key Upload with Project Mapping Logic
             const uploadGCPKey = (event) => {
                 const file = event.target.files[0];
                 if (!file) return;
@@ -694,30 +748,129 @@
                     try {
                         const keyData = JSON.parse(e.target.result);
                         if (!keyData.project_id || !keyData.private_key) throw new Error("Invalid GCP Key format");
+                        
+                        // Save key to global settings
                         settings.gcpKey = keyData;
                         await saveSettings();
-                        alert("GCP Key saved securely in IndexedDB.");
-                    } catch (err) { alert("Error parsing key: " + err.message); }
+                        
+                        const uploadedProjectId = keyData.project_id;
+                        const existingProject = projects.value.find(p => p.projectId === uploadedProjectId);
+                        
+                        if (existingProject) {
+                            if (confirm(`このキーは既存のプロジェクト『${existingProject.name} (ID: ${uploadedProjectId})』に関連付けられています。\nこのプロジェクトを現在のプロジェクトとして選択しますか？`)) {
+                                currentProjectId.value = existingProject.id;
+                                await handleProjectChange();
+                            }
+                        } else {
+                            if (confirm(`GCPキーに含まれるプロジェクトID『${uploadedProjectId}』を持つ新しいプロジェクトを作成し、現在のプロジェクトとして設定しますか？`)) {
+                                const newId = 'proj_' + Date.now();
+                                const newProj = { id: newId, name: uploadedProjectId, projectId: uploadedProjectId };
+                                await db.projects.add(newProj);
+                                await loadProjects();
+                                currentProjectId.value = newId;
+                                await handleProjectChange();
+                            }
+                        }
+                        
+                        // Sync visual project ID field
+                        if (currentProject.value.projectId !== uploadedProjectId) {
+                            currentProject.value.projectId = uploadedProjectId;
+                            await saveProjectInfo();
+                        }
+                        
+                        alert("GCP Key saved securely in local IndexedDB.");
+                    } catch (err) { 
+                        alert("Error parsing key: " + err.message); 
+                    } finally {
+                        event.target.value = ''; // reset input
+                    }
                 };
                 reader.readAsText(file);
             };
             const removeGCPKey = async () => { settings.gcpKey = null; await saveSettings(); };
 
-            // Mock GCP Fetch
-            const fetchFromGCP = (type) => {
+            // Fetch Data from GCP (Real or Mock)
+            const fetchFromGCP = async (type) => {
                 if (!settings.gcpKey) { alert("Please configure GCP Service Account Key in Settings first."); return; }
                 isSaving.value = true;
-                setTimeout(() => {
-                    if (type === 'rules') projectData.firestoreRule += "\n\n// Synced from GCP\n// match /public/{docId} { allow read: if true; }";
-                    else if (type === 'iam') projectData.iam.push({ member: 'serviceAccount:auto-synced@' + settings.gcpKey.project_id + '.iam.gserviceaccount.com', role: 'roles/editor' });
-                    else if (type === 'services') projectData.services.push({ name: 'synced-api-service', type: 'Cloud Run', region: 'asia-northeast1', source: 'gcr.io/' + settings.gcpKey.project_id + '/api:latest' });
+                
+                try {
+                    if (type === 'rules') {
+                        const res = await callBackendAPI('/firestore/rules', 'POST'); // Assuming POST to send credentials if required by backend design
+                        if (res && res.rules) projectData.firestoreRule = res.rules;
+                        else projectData.firestoreRule += "\n\n// Synced from GCP (Mock Mode)\n// match /public/{docId} { allow read: if true; }";
+                    } 
+                    else if (type === 'iam') {
+                        const res = await callBackendAPI('/iam/policies', 'POST');
+                        if (res && res.iam) projectData.iam = res.iam;
+                        else projectData.iam.push({ member: 'serviceAccount:auto-synced@' + settings.gcpKey.project_id + '.iam.gserviceaccount.com', role: 'roles/editor' });
+                    } 
+                    else if (type === 'services') {
+                        const res = await callBackendAPI('/run/services', 'POST');
+                        if (res && res.services) projectData.services = res.services;
+                        else projectData.services.push({ name: 'synced-api-service', type: 'Cloud Run', region: 'asia-northeast1', source: 'gcr.io/' + settings.gcpKey.project_id + '/api:latest' });
+                    }
                     debounceSave();
+                    alert("Sync complete!");
+                } catch (e) {
+                    alert("Error syncing from GCP: " + e.message);
+                } finally {
                     isSaving.value = false;
-                    alert("Sync complete! Data fetched via mock API.");
-                }, 800);
+                }
             };
 
-            // Firestore Data Methods
+            // Deploy Actions (Real or Mock)
+            const deployRule = async () => {
+                try {
+                    const res = await callBackendAPI('/firestore/rules/deploy', 'POST', { rules: projectData.firestoreRule });
+                    if (res) alert("Rules deployed successfully to GCP!");
+                    else alert(`Mock Deploying rules for project ${currentProject.value.projectId}...\n\nRule deployed successfully!`);
+                } catch (e) { alert("Deploy failed: " + e.message); }
+            };
+
+            const deployIAM = async () => {
+                try {
+                    const res = await callBackendAPI('/iam/deploy', 'POST', { iam: projectData.iam });
+                    if (res) alert("IAM Policies deployed successfully to GCP!");
+                    else alert(`Mock Deploying IAM policies for project ${currentProject.value.projectId}...`);
+                } catch (e) { alert("Deploy failed: " + e.message); }
+            };
+
+            const deployService = async (index) => {
+                const svc = projectData.services[index];
+                try {
+                    const res = await callBackendAPI('/run/deploy', 'POST', { service: svc });
+                    if (res) alert(`Service ${svc.name} deployed successfully to GCP!`);
+                    else alert(`Mock Deploying service ${svc.name} to GCP...`);
+                } catch (e) { alert("Deploy failed: " + e.message); }
+            };
+
+            // Local Resource Management
+            const addIAM = () => { projectData.iam.push({ member: '', role: '' }); debounceSave(); };
+            const removeIAM = (index) => { projectData.iam.splice(index, 1); debounceSave(); };
+            const addService = () => { projectData.services.push({ name: '', type: 'Cloud Run', region: 'us-central1', source: '' }); debounceSave(); };
+            const removeService = (index) => { projectData.services.splice(index, 1); debounceSave(); };
+
+
+            // Firestore Data Methods (Real or Mock)
+            const syncFirestoreData = async () => {
+                isSaving.value = true;
+                try {
+                    const res = await callBackendAPI('/firestore/data', 'POST');
+                    if (res && res.collections) {
+                        projectData.firestoreCollections = res.collections;
+                        alert("Firestore data synced successfully!");
+                    } else {
+                        // Mock Sync
+                        if(!projectData.firestoreCollections) projectData.firestoreCollections = [];
+                        projectData.firestoreCollections.push({ name: 'users', documents: [{ id: 'mock_user_1', data: '{\n  "name": "John",\n  "role": "admin"\n}' }] });
+                        alert("Mock Sync complete!");
+                    }
+                    debounceSave();
+                } catch (e) { alert("Sync failed: " + e.message); }
+                isSaving.value = false;
+            };
+
             const selectCollection = (index) => { selectedCollectionIndex.value = index; selectedDocumentIndex.value = null; editingDocContent.value = ''; };
             const selectDocument = (index) => { selectedDocumentIndex.value = index; editingDocContent.value = activeCollection.value.documents[index].data; };
             const addCollection = () => {
@@ -728,11 +881,17 @@
                     debounceSave();
                 }
             };
-            const removeCollection = (index) => {
-                if(confirm("Delete this collection and all its documents?")) {
+            const removeCollection = async (index) => {
+                if(confirm("Delete this collection and all its documents from GCP?")) {
+                    const colName = projectData.firestoreCollections[index].name;
                     projectData.firestoreCollections.splice(index, 1);
                     if (selectedCollectionIndex.value === index) selectedCollectionIndex.value = null;
                     debounceSave();
+                    
+                    try {
+                        const res = await callBackendAPI(`/firestore/data/${colName}`, 'DELETE');
+                        if (res) console.log(`Collection ${colName} deleted on GCP`);
+                    } catch(e) { console.error("GCP Delete failed:", e); }
                 }
             };
             const addDocument = () => {
@@ -740,20 +899,30 @@
                 activeCollection.value.documents.push({ id, data: '{\n  \n}' });
                 debounceSave();
             };
-            const removeDocument = (index) => {
-                if(confirm("Delete this document?")) {
+            const removeDocument = async (index) => {
+                if(confirm("Delete this document from GCP?")) {
+                    const doc = activeCollection.value.documents[index];
                     activeCollection.value.documents.splice(index, 1);
                     if (selectedDocumentIndex.value === index) { selectedDocumentIndex.value = null; editingDocContent.value = ''; }
                     debounceSave();
+                    
+                    try {
+                        const res = await callBackendAPI(`/firestore/data/${activeCollection.value.name}/${doc.id}`, 'DELETE');
+                        if (res) console.log(`Document ${doc.id} deleted on GCP`);
+                    } catch(e) { console.error("GCP Delete failed:", e); }
                 }
             };
-            const saveDocumentContent = () => {
+            const saveDocumentContent = async () => {
                 try {
-                    JSON.parse(editingDocContent.value);
-                    activeCollection.value.documents[selectedDocumentIndex.value].data = editingDocContent.value;
+                    const parsedData = JSON.parse(editingDocContent.value);
+                    const doc = activeCollection.value.documents[selectedDocumentIndex.value];
+                    doc.data = editingDocContent.value;
                     debounceSave();
-                    alert("Document data saved.");
-                } catch (e) { alert("Invalid JSON format! Please fix errors before saving."); }
+                    
+                    const res = await callBackendAPI(`/firestore/data/${activeCollection.value.name}/${doc.id}`, 'POST', { data: parsedData });
+                    if(res) alert("Document data saved to GCP successfully!");
+                    else alert("Document data saved locally (Mock Mode).");
+                } catch (e) { alert("Invalid JSON format or Save failed: " + e.message); }
             };
 
             // Import / Export
@@ -787,10 +956,10 @@
                 projects, currentProjectId, currentProject, projectData,
                 settings, isSaving, debounceSave, saveSettings, saveProjectInfo, handleProjectChange,
                 isAIOpen, aiInput, aiHistory, isAILoading, toggleAI, sendToAI, clearChat, renderMarkdown, chatContainer,
-                addIAM, removeIAM, addService, removeService, deployRule, fetchFromGCP,
+                addIAM, removeIAM, addService, removeService, deployRule, deployIAM, deployService, fetchFromGCP,
                 uploadGCPKey, removeGCPKey,
                 selectedCollectionIndex, selectedDocumentIndex, activeCollection, activeDocument, editingDocContent,
-                selectCollection, selectDocument, addCollection, removeCollection, addDocument, removeDocument, saveDocumentContent,
+                syncFirestoreData, selectCollection, selectDocument, addCollection, removeCollection, addDocument, removeDocument, saveDocumentContent,
                 exportData, importData, triggerBackup, showBackups, backups, restoreBackup
             };
         }
